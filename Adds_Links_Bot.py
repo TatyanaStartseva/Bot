@@ -73,6 +73,7 @@ async def download_links(message: types.Message, state: FSMContext):
                     remainder = url.split("://")[1].split("/", 1)[-1]
                     if re.match(r'^https?://', url) and not '/' in remainder:
                             try:
+                                url = url.lower()
                                 conn = psycopg2.connect(
                                     host=HOST, database=DATABASE, user=USER, password=PASSWORD
                                 )
