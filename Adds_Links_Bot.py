@@ -140,7 +140,8 @@ async def download_links(message: types.Message, state: FSMContext):
                 if invalid_chat_ids:
                     await message.reply(f'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.\n' +'\n'.join(invalid_chat_ids_server))
                 else:
-                    await message.reply(f"Чат(ы) {chat_processing} сейчас обрабатывается, попробуйте повторить запрос позже \n")
+                    if chat_processing:
+                        await message.reply(f"Чат(ы) {chat_processing} сейчас обрабатывается, попробуйте повторить запрос позже \n")
                     wb.save(file_path)
                     with open(file_path, "rb") as f:
                         document = types.InputFile(f)
