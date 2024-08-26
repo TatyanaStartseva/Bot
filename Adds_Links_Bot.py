@@ -65,6 +65,7 @@ async def download_links(message: types.Message, state: FSMContext):
                 ]
             )
             user_ids_written = set()
+            chat_processing = ""
             if urls:
                 file_path = "chats_users.xlsx"
                 invalid_chat_ids_server = []
@@ -90,28 +91,32 @@ async def download_links(message: types.Message, state: FSMContext):
                                 chat_users = []
                                 if chat_ids:
                                     for chat_id in chat_ids:
-                                        cursor.execute("SELECT user_id FROM user_chat WHERE chat_id = %s", (chat_id,))
-                                        users = cursor.fetchall()
-                                        for user in users:
-                                            cursor.execute("SELECT * FROM users WHERE user_id = %s", (user,))
-                                            user_data = cursor.fetchall()
-                                            user_id = user_data[0][0]
-                                            if user_id not in user_ids_written:
-                                                chat_users.append(
-                                                    (
-                                                        user_data[0][0],
-                                                        user_data[0][1],
-                                                        user_data[0][2],
-                                                        user_data[0][3],
-                                                        user_data[0][4],
-                                                        user_data[0][5],
-                                                        user_data[0][6],
-                                                        user_data[0][7],
-                                                        user_data[0][8],
+                                        cursor.execute("SELECT  user_chat.user_id  FROM user_chat JOIN users ON user_chat.user_id=users.user_id WHERE chat_id = %s  AND bio = 'Default-value-for-parser' GROUP BY user_chat.user_id", (chat_id,))
+                                        result = cursor.fetchall()
+                                        if len(result) == 0:
+                                            cursor.execute("SELECT user_id FROM user_chat WHERE chat_id = %s", (chat_id,))
+                                            users = cursor.fetchall()
+                                            for user in users:
+                                                cursor.execute("SELECT * FROM users WHERE user_id = %s", (user,))
+                                                user_data = cursor.fetchall()
+                                                user_id = user_data[0][0]
+                                                if user_id not in user_ids_written :
+                                                    chat_users.append(
+                                                        (
+                                                            user_data[0][0],
+                                                            user_data[0][1],
+                                                            user_data[0][2],
+                                                            user_data[0][3],
+                                                            user_data[0][4],
+                                                            user_data[0][5],
+                                                            user_data[0][6],
+                                                            user_data[0][7],
+                                                            user_data[0][8],
+                                                        )
                                                     )
-                                                )
-                                                user_ids_written.add(user_id)
-
+                                                    user_ids_written.add(user_id)
+                                        else:
+                                            chat_processing+= url+', '
                                 for user in chat_users:
                                     user_data = [
                                         user[0],
@@ -135,6 +140,7 @@ async def download_links(message: types.Message, state: FSMContext):
                 if invalid_chat_ids:
                     await message.reply(f'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.\n' +'\n'.join(invalid_chat_ids_server))
                 else:
+                    await message.reply(f"Чат(ы) {chat_processing} сейчас обрабатывается, попробуйте повторить запрос позже \n")
                     wb.save(file_path)
                     with open(file_path, "rb") as f:
                         document = types.InputFile(f)
