@@ -97,11 +97,11 @@ async def download_links(message: types.Message, state: FSMContext):
                     )
                 )
                 is_not_finished = False
+                bio = None
                 for user in info_users:
                     if "ban" not in user:
                         user["ban"] = False
-                    if user["bio"] == "Default-value-for-parser":
-                        bio = None
+                    if bio == "Default-value-for-parser":
                         is_not_finished = True
                     else:
                         bio = user["bio"]
