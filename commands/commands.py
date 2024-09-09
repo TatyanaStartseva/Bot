@@ -110,8 +110,8 @@ async def download_links(message: types.Message, state: FSMContext):
                         user["user_id"],
                         user["username"],
                         bio,
-                        user["first_name"],
-                        user["last_name"],
+                        str(user["first_name"]),
+                        str(user["last_name"]),
                         (
                             user["last_online"].strftime("%Y-%m-%d %H:%M:%S")
                             if user["last_online"] is not None
