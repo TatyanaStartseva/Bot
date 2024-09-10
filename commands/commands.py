@@ -1,5 +1,7 @@
 ﻿import os
 import re
+from datetime import datetime
+
 import aiohttp
 import requests
 from aiogram import types
@@ -114,7 +116,8 @@ async def download_links(message: types.Message, state: FSMContext):
                         str(user["last_name"]),
                         (
                             user["last_online"].strftime("%Y-%m-%d %H:%M:%S")
-                            if user["last_online"] is not None
+                            if user["last_online"].strftime("%Y-%m-%d %H:%M:%S")
+                            != "1970-01-01 00:00:00"
                             else ""
                         ),
                         "false" if user["premium"] == False else "true",
