@@ -108,18 +108,22 @@ async def download_links(message: types.Message, state: FSMContext):
                         is_not_finished = True
                     else:
                         bio = user["bio"]
+                    if user["last_online"] is not None:
+                        last_online = (
+                            user["last_online"].strftime("%Y-%m-%d " "%H:%M:%S")
+                            if user["last_online"].strftime("%Y-%m-%d %H:%M:%S")
+                            != "1970-01-01 00:00:00"
+                            else ""
+                        )
+                    else:
+                        last_online = ""
                     user_data = [
                         user["user_id"],
                         user["username"],
                         bio,
                         str(user["first_name"]),
                         str(user["last_name"]),
-                        (
-                            user["last_online"].strftime("%Y-%m-%d %H:%M:%S")
-                            if user["last_online"].strftime("%Y-%m-%d %H:%M:%S")
-                            != "1970-01-01 00:00:00"
-                            else ""
-                        ),
+                        last_online,
                         "false" if user["premium"] == False else "true",
                         "" if user["phone"] is None else user["phone"],
                         "true" if user["image"] == True else "false",
