@@ -1,16 +1,28 @@
 ﻿import os
 import re
-from datetime import datetime
-
+from config.config import dp, bot
 import aiohttp
 import requests
-from aiogram import types
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram import Bot, Dispatcher, types
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.filters import Command
+from aiogram.types import Message
 from openpyxl import Workbook
 from db.db import db
-from config.config import dp, IP
+from dotenv import load_dotenv
+from aiogram import Router
+from aiogram.types import FSInputFile
+load_dotenv()
 
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+IP = os.getenv("IP")
+
+bot = Bot(token=BOT_TOKEN)
+storage = MemoryStorage()
+router = Router()
+dp.include_router(router)
 
 class DownloadState(StatesGroup):
     waiting_for_download_links = State()
@@ -19,32 +31,69 @@ class DownloadState(StatesGroup):
 class ParseState(StatesGroup):
     waiting_for_tasks_links = State()
 
-
-@dp.message_handler(commands=["start"])
-async def start(message: types.Message):
-    await message.reply(
-        'Привет! Мы рады представить Вам нашего бота и ознакомить с его функционалом.\n\nКоманда "/parse"\nОтправьте список ссылок, которые Вы хотите добавить в базу данных. Бот проверит их на корректность и добавит допустимые ссылки.\n\nКоманда "/download"\nОтправьте список ссылок на чаты, после чего бот отправит информацию о пользователях этих чатов в формате Excel.\n\nВы можете отправлять как одну ссылку, так и несколько ссылок одновременно. Просто разделите их переносом строки.'
+@router.message(Command(commands=["start"]))
+async def start(message: Message):
+    await message.answer(
+        'Привет! Мы рады представить Вам нашего бота и ознакомить с его функционалом.\n\n'
+        'Команда "/parse"\nОтправьте список ссылок, которые Вы хотите добавить в базу данных. Бот проверит их на корректность и добавит допустимые ссылки.\n\n'
+        'Команда "/download"\nОтправьте список ссылок на чаты, после чего бот отправит информацию о пользователях этих чатов в формате Excel.\n\n'
+        'Вы можете отправлять как одну ссылку, так и несколько ссылок одновременно. Просто разделите их переносом строки.'
     )
 
-
-@dp.message_handler(commands=["parse"])
-async def tasks_command(message: types.Message):
-    await ParseState.waiting_for_tasks_links.set()
-    await message.reply(
+@router.message(Command(commands=["parse"]))
+async def tasks_command(message: Message, state: FSMContext):
+    await message.answer(
         "Пожалуйста, отправьте ссылки, которые нужно добавить в базу данных.\nПример:\nhttps://t.me/example1 \nhttps://t.me/example2"
     )
+    await state.set_state(ParseState.waiting_for_tasks_links)
 
-
-@dp.message_handler(commands=["download"])
-async def download_command(message: types.Message):
-    await message.reply(
+@router.message(Command(commands=["download"]))
+async def download_command(message: Message, state: FSMContext):
+    await message.answer(
         "Пожалуйста, отправьте ссылки на чаты, чтобы скачать информацию о пользователях этих чатов.\nПример:\nhttps://t.me/example1 \nhttps://t.me/example2"
     )
-    await DownloadState.waiting_for_download_links.set()
+    await state.set_state(DownloadState.waiting_for_download_links)
 
+@router.message(ParseState.waiting_for_tasks_links)
+async def tasks_links(message: types.Message, state: FSMContext):
+    try:
+        links = re.findall(r"(?:https?://\S+)", message.text)
+        if links:
+            valid_links = []
+            invalid_links = []
 
-@dp.message_handler(state=DownloadState.waiting_for_download_links)
-async def download_links(message: types.Message, state: FSMContext):
+            for link in links:
+                remainder = link.split("://")[1].split("/", 1)[-1]
+                if re.match(r"^https?://", link) and not "/" in remainder:
+                    valid_links.append(link)
+                else:
+                    invalid_links.append(link)
+
+            if invalid_links:
+                await message.answer(
+                    'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.\n'
+                    + "\n".join(invalid_links)
+                )
+            else:
+                if valid_links:
+                    answer = requests.post(f"http://{IP}/add", json={"urls": valid_links})
+                    if answer.status_code == 200:
+                        await message.answer(
+                            "Чаты успешно добавлены в очередь для парсинга. Рекомендуется подождать час, перед тем как получить информацию о пользователях из чатов."
+                        )
+                    else:
+                        await message.answer(f"Ошибка: {answer.status_code}")
+        else:
+            await message.answer(
+                'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.'
+            )
+        await state.clear()
+    except Exception as e:
+        print(f"{e}")
+        await message.answer(f"Ошибка: {e}")
+
+@router.message()
+async def download_links(message: types.Message):
     try:
         async with aiohttp.ClientSession():
             urls = re.findall(r"(?:https?://\S+)", message.text)
@@ -52,16 +101,8 @@ async def download_links(message: types.Message, state: FSMContext):
             ws = wb.active
             ws.append(
                 [
-                    "user_id",
-                    "username",
-                    "bio",
-                    "first_name",
-                    "last_name",
-                    "last_online",
-                    "premium",
-                    "phone",
-                    "image",
-                    "ban",
+                    "user_id", "username", "bio", "first_name", "last_name",
+                    "last_online", "premium", "phone", "image", "ban"
                 ]
             )
             if urls:
@@ -99,7 +140,7 @@ async def download_links(message: types.Message, state: FSMContext):
                     )
                 )
                 is_not_finished = False
-
+                print(info_users)
                 for user in info_users:
                     if "ban" not in user:
                         user["ban"] = False
@@ -107,10 +148,10 @@ async def download_links(message: types.Message, state: FSMContext):
                         bio = None
                         is_not_finished = True
                     else:
-                        bio = user["bio"]
+                        bio = str(user["bio"])
                     if user["last_online"] is not None:
                         last_online = (
-                            user["last_online"].strftime("%Y-%m-%d " "%H:%M:%S")
+                            user["last_online"].strftime("%Y-%m-%d %H:%M:%S")
                             if user["last_online"].strftime("%Y-%m-%d %H:%M:%S")
                             != "1970-01-01 00:00:00"
                             else ""
@@ -129,67 +170,26 @@ async def download_links(message: types.Message, state: FSMContext):
                         "true" if user["image"] == True else "false",
                         "true" if user["ban"] == True else "false",
                     ]
+                    print(user_data)
                     ws.append(user_data)
                 wb.save(file_path)
                 if is_not_finished:
-                    await message.reply(
-                        f"На данный момент не вся информации о пользователях доступна. Пожалуйста, подождите некоторое время и повторите попытку. \n "
+                    await message.answer(
+                        f"На данный момент не вся информация о пользователях доступна. Пожалуйста, подождите некоторое время и повторите попытку."
                     )
                 if invalid_chat_ids:
-                    await message.reply(
+                    await message.answer(
                         f'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.\n'
                         + "\n".join(invalid_chat_ids_server)
                     )
                 else:
-                    with open(file_path, "rb") as f:
-                        document = types.InputFile(f)
-                        await message.reply_document(document)
+                    document = FSInputFile(file_path)
+                    await message.answer_document(document)
                     os.remove(file_path)
             else:
-                await message.reply(
-                    f'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.'
+                await message.answer(
+                    'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.'
                 )
-        await state.finish()
     except Exception as e:
-        await message.reply(f"Произошла ошибка при обработке запроса: {e}")
+        await message.answer(f"Произошла ошибка при обработке запроса: {e}")
 
-
-@dp.message_handler(state=ParseState.waiting_for_tasks_links)
-async def tasks_links(message: types.Message, state: FSMContext):
-    try:
-        links = re.findall(r"(?:https?://\S+)", message.text)
-        if links:
-            valid_links = []
-            invalid_links = []
-
-            for link in links:
-                remainder = link.split("://")[1].split("/", 1)[-1]
-                if re.match(r"^https?://", link) and not "/" in remainder:
-                    valid_links.append(link)
-                else:
-                    invalid_links.append(link)
-
-            if invalid_links:
-                await message.reply(
-                    'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.\n'
-                    + "\n".join(invalid_links)
-                )
-            else:
-                if valid_links:
-                    answer = requests.post(
-                        f"http://{IP}/add", json={"urls": valid_links}
-                    )
-                    if answer.status_code == 200:
-                        await message.reply(
-                            "Чаты успешно добавлены в очередь для парсинга.Рекомендуется подождать час, перед тем как получить информацию о пользователях из чатов."
-                        )
-                    else:
-                        await message.reply(f"Ошибка: {answer.status_code}")
-        else:
-            await message.reply(
-                f'Ссылки должны начинаться с "https://" и не содержать "/" в конце. Например, ссылка "https://t.me/example1/4544" неправильна, так как содержит "/4544" в конце.'
-            )
-        await state.finish()
-    except Exception as e:
-        print(f"{e}")
-        await message.reply(f"Ошибка: {e}")
